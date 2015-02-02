@@ -1,0 +1,31 @@
+What needs to be done for this project.
+
+For the purpose of receiving feedback about how I spend my time so I can make adjustments:
+
+1. For keeping track of when things were left off Michael suggested to look for the latest month and then pass that information to GYB so it collects all the data from there. Really, gyb has already created a tracking system for me.
+
+
+
+For the purpose of creating a cool working project that automatically collects the data,
+I have options of creating various plots and I have a cool working web-interface for that. 
+
+
+
+-------------------------------------------------------
+Tasks:
+
+1. Create a Python script that will look for the latest month and day (?) and pass this information to gyb for backup. Start: April 26, 2014. Finished: May 1st, 2014.
+2. Next step: wrap the day look up script, gyb run into a cron job that  will be run weekly for email downloading. Done: May 1st. Return the list of the newest added files as a file that will be read in R. Done: May 5th, not tested. R should then erase the file. 
+3. Process the newest added files by adding them to a database, this will be done in R.
+4. Wrap everything in a cron job.
+
+
+--------------------------------------------------------
+User stories:
+
+I need to understand how to put all this code together.
+Assume that I already have the authorization with Google. When I every week run the script (potentially as a cron job which still need to be done) what should or will happen?
+1. Check with the /GYB-GMail-Backup-vitalina@gmail.com/ directory. Does it have any folders in it? If it has any folders then look for the latest date. 
+If it doesn't have any folders then run a clean backup looking for the subject TimeLogger in my email.Then look for the latest date.
+2. Using the latest date to collect more data from Gmail. [What should I do with idiotic cases? What if I have run 
+the script already (using cron job) and I am running it manually again? I don't want to have any overlaps in my data. ]. Write the new paths to a file that will be read by R.

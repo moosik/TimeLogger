@@ -1,0 +1,135 @@
+Time analysis using TimeLogger
+========================================================
+
+I want to start using TimeLogger app on my old iPod because it allows for more precise time tracking: when a certain activity was performed (morning/evening), multitasking, ability to pause the timer. Not really clear what to do with the number of pages read, heart rate during boxing (can possible use the description field). May also need to keep track separately for other discerete, not timed activities: ice cream eaten, email open, etc. My plan is to also learn RShiny to have interactive display of the results. Need to do:
+1. Set up R Shiny and figure out how to use it
+2. Decide what I want to show: plots (over period of time, for example, every day; broken down by the day of the week), summary stats, etc (can we use ggplot?)
+3. Easy addition of new data to the server with integration with the previous existing datasets.
+
+## Sample data
+
+```{r loadLibraries}
+library(RColorBrewer) #to use colors in plots
+library(ggplot2)
+library(reshape) #to use melt function
+library(chron) #for times class
+library(xtable) #for latex formatted tables
+library(gridExtra) #for multi-panel ggplots
+library(utils) 
+library(scales) #for scaling the x axis when dates are used
+```
+
+```{r loadData}
+setwd("~/Documents/R-projects/TimeLogger")
+data <- read.csv("TimeLogger.csv", stringsAsFactors=FALSE)
+head(data)
+## Convert starting and ending dates and times to POSIXlt format. Currently the data is entered in a very convenient format (date, space, time) for conversion to the POSIXlt.
+temp <- as.POSIXlt(data[,1])
+temp <- do.call("cbind", temp)
+data <- cbind(data[,-1], temp)
+colnames(start.data) <- paste("start", colnames(start.data), sep=".")
+## Convert the end dates as well
+temp <- as.character(data[,2])
+end.data <- as.POSIXlt(temp)
+end.data <- do.call("cbind", end.data)
+colnames(end.data) <- paste("end", colnames(end.data), sep=".")
+data <- cbind(start.data, end.data, data[,3:8])
+```
+So far Time Logger format seems to be easier for manipulating.
+
+## What kind of plots and summary data would I like to display?
+
+## Obtaining data from Gmail
+
+Here is the rough workflow of how I want to obtain my Time Logger records. 
+
+1. Send a report as a .csv attachment to my gmail
+2. Use [got-your-back (gyb)](https://code.google.com/p/got-your-back/) utility on my computer to get a back up of emails that have subject: "TimeLogger Report". Probably need to write a script that will do it automatically once a week or once a month. gyb allows to set up various search parameters. I want to keep track of the dates when I retrieve the data. Might want to have a little file that keeps track of the dates.
+3. Set up a database where I will store TimeLogger Reports. MySQL if I work on this computer or SQL lite so it can be portable.
+4. In R read the new reports (need to write a folder crawler that will look for new reports), extract the attachment portion of the email, decode it from the base64 encoding, write a zip file, extract it and put the new entries in a database. Need to figure out how to write the new entries only.
+5. Outline the list of figures that will available for presentation.
+6. Set up R Shiny that will retrieve the data from the database and display summary stats, make plots. Alternatively, use Javascript to write a web-page.
+
+
+## Example of parsing a back-up email
+GYB command for backing up the data:
+
+```
+python gyb.py --email vitalina@gmail.com --search "subject:TimeLogger Report"
+```
+(Alternatively, I can set up an alias for gyb = python gyb.py)
+
+To run the command with the dates included:
+ ```
+python gyb.py --email vitalina@gmail.com --search "subject:TimeLogger Report AND after:2013/12/22"
+ ```
+
+After the first run it created a folder GYB-GMail-Backup-vitalina@gmail.com with emails sorted into folders first by year: 2009, 2010, 2013 and then by month and then by day. Emails from previous years 2009 and 2010 contained data entries as the part of email body, however, I really like the csv format of TimeLogger because it makes it easy to read in R and process the data. Also, I don't need 2009-2013 years. Therefore I needed to find a way to read the attachement, which is the part of the backed up email but in base64. Overvew of dealing with this problem:
+
+1. Read the email in a character string
+2. Extract the attachment part
+3. Convert using a function from RCurl package to the raw format
+4. Write as a zip file using writeBin function
+5. Unpack the file
+6. Read back into R or directly to a database.
+
+```{r base64}
+getwd()
+email.ex <- readLines("./reports_from_gmail/GYB-GMail-Backup-vitalina@gmail.com/2013/12/22/1-208076.eml")
+## Print the email as an example:
+email.ex
+## I am not sure how standard the emails with attachments will be, I think I will need to see more of them, but at this point I will just extract the attachment part based on the indices. The attachment will have different length based on the size of the report. Maybe starts with empty string and ends with "--Apple-Mail-1"? Alternatively, I can remove all empty strings and then it will start with "Content-Transfer-Encoding: base64" and "--Apple-Mail-". I wonder how consistent it is. Lets try to do it.
+library(RCurl) #for the function base64Decode
+empty.str <- which(nchar(email.ex)==0)
+email.ex <- email.ex[-empty.str]
+content.transfer <- which(email.ex=="Content-Transfer-Encoding: base64")
+string.start <- which(email.ex=="Content-Transfer-Encoding: base64") + 1
+all.apple.mail <- grep("--Apple-Mail-", email.ex)
+string.end <- all.apple.mail[which(all.apple.mail > content.transfer)[1]]-1
+zip.string <- email.ex[string.start:string.end]
+zip.string <- paste(zip.string, collapse="")
+raw.zip <- base64Decode(zip.string, "raw")
+writeBin(raw.zip, "report.zip")
+## To read the file without unzipping it straight to R:
+test<- read.csv(unz("report.zip", "TimeLogger.csv"), header=T, stringsAsFactors=FALSE)
+```
+Create a database table for storing the data.
+```{r database}
+library(RMySQL)
+## Had to grant myself all previleges before I could create a database. Fire up mysql by starting sudo mysql. Then issued the following statement: GRANT ALL ON *.* TO 'vitalina'@'localhost';
+m <- dbDriver("MySQL")
+con <- dbConnect(m, username="vitalina")
+res <- dbSendQuery(con, "create database time_logger_2014") # don't need to run it every time
+res <- dbSendQuery(con, "use time_logger_2014")
+## Next I need to create a table where I will store TimeLogger data. I decided that I will not worry about creating a primary key because all the analyses I will do in R and if there are any duplicate rows I will be able to remove them then using the function 'duplicated()'
+res <- dbSendQuery(con, "create table weekly_reports (start_date_time varchar(50), end_date_time varchar(50), elapsed_time varchar(50), dec_elapsed_time varchar(50), category varchar(50), client varchar(50), job varchar(50), description varchar(50))")
+# Try to load a few rows from the data object to the new table:
+con <- dbConnect(m, dbname="time_logger_2014")
+## Looks that in order to write a data frame to table we need to make sure that the column names of the data frame match the names of the column in the table where we want to load the data:
+colnames(data) <- c("start_date_time", "end_date_time", "elapsed_time", "dec_elapsed_time", "category", "client", "job", "description")
+res <- dbWriteTable(con, name="weekly_reports", value=data, append=TRUE, row.names=FALSE)
+## Now lets try to add more rows to the table to see how it will work:
+res <- dbWriteTable(con, name="weekly_reports", value=data[1:4,], append=TRUE, row.names=FALSE)
+## Went without any problems. Now try to read the data from the mysql table back to R:
+data.sql <- dbReadTable(con, name="weekly_reports")
+head(data.sql)
+class(data.sql[,1])
+## Testing removing of the duplicated rows:
+data.sql.un <- duplicated(data.sql)
+table(data.sql.un)
+datas.sql.un <- data.sql[!data.sql.un,]
+## Looks that this part works. Now remove all rows from the table so I can start clean:
+res <- dbSendQuery(con, "truncate table weekly_reports")
+dbSendQuery(con, "select * from weekly_reports limit 3")
+```
+
+Writing a script that will regularly run to collect the data. 
+My problems:
+1. How to write a constantly running R script or one that will execute at x o'clock every Monday? Possibly wrap an R script to a shell script. Also, need a script that will start the gmail utility at a certain time. Possibly, cron or launchy
+3. Extract all paths to a eml file. Probably can use find. Anything from R?
+2. Create a database of paths to the .eml files. Every time I will scan the directory with emails and compare it to a database. If a path is new, add it to a database and get the data, add it to a database.
+
+
+
+
+
